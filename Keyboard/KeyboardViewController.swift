@@ -20,16 +20,17 @@ let kPeriodShortcut = "kPeriodShortcut"
 let kKeyboardClicks = "kKeyboardClicks"
 let kSmallLowercase = "kSmallLowercase"
 
-class KeyboardViewController: UIInputViewController {
+@objc class KeyboardView: UIView {
     
     let backspaceDelay: NSTimeInterval = 0.5
     let backspaceRepeat: NSTimeInterval = 0.07
-    
+
+    var viewController: KeyboardViewController!
+
     var keyboard: Keyboard!
     var forwardingView: ForwardingView!
     var layout: KeyboardLayout?
-    var heightConstraint: NSLayoutConstraint?
-    
+
     var bannerView: ExtraView?
     var settingsView: ExtraView?
     
@@ -48,7 +49,14 @@ class KeyboardViewController: UIInputViewController {
     }
     var backspaceDelayTimer: NSTimer?
     var backspaceRepeatTimer: NSTimer?
-    
+
+    var textDocumentProxy: NSObject {
+        return self.viewController.textDocumentProxy
+    }
+    var interfaceOrientation: UIInterfaceOrientation {
+        return self.viewController.interfaceOrientation
+    }
+
     enum AutoPeriodState {
         case NoSpace
         case FirstSpace
@@ -74,26 +82,7 @@ class KeyboardViewController: UIInputViewController {
     var shiftWasMultitapped: Bool = false
     var shiftStartingState: ShiftState?
     
-    var keyboardHeight: CGFloat {
-        get {
-            if let constraint = self.heightConstraint {
-                return constraint.constant
-            }
-            else {
-                return 0
-            }
-        }
-        set {
-            self.setHeight(newValue)
-        }
-    }
-    
-    // TODO: why does the app crash if this isn't here?
-    convenience override init() {
-        self.init(nibName: nil, bundle: nil)
-    }
-    
-    override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: NSBundle?) {
+    required init(viewController: KeyboardViewController!) {
         NSUserDefaults.standardUserDefaults().registerDefaults([
             kAutoCapitalization: true,
             kPeriodShortcut: true,
@@ -105,15 +94,23 @@ class KeyboardViewController: UIInputViewController {
         
         self.shiftState = .Disabled
         self.currentMode = 0
+
+        self.viewController = viewController
         
-        super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
-        
+        super.init(frame: CGRectZero)
+
         self.forwardingView = ForwardingView(frame: CGRectZero)
-        self.view.addSubview(self.forwardingView)
+        self.addSubview(self.forwardingView)
         
         NSNotificationCenter.defaultCenter().addObserver(self, selector: Selector("defaultsChanged:"), name: NSUserDefaultsDidChangeNotification, object: nil)
+
+        if var aBanner = self.createBanner() {
+            aBanner.hidden = true
+            self.insertSubview(aBanner, belowSubview: self.forwardingView)
+            self.bannerView = aBanner
+        }
     }
-    
+
     required init(coder: NSCoder) {
         fatalError("NSCoding not supported")
     }
@@ -131,24 +128,24 @@ class KeyboardViewController: UIInputViewController {
     }
     
     // without this here kludge, the height constraint for the keyboard does not work for some reason
-    var kludge: UIView?
-    func setupKludge() {
-        if self.kludge == nil {
-            var kludge = UIView()
-            self.view.addSubview(kludge)
-            kludge.setTranslatesAutoresizingMaskIntoConstraints(false)
-            kludge.hidden = true
-            
-            let a = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Left, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Left, multiplier: 1, constant: 0)
-            let b = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Right, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Left, multiplier: 1, constant: 0)
-            let c = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Top, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Top, multiplier: 1, constant: 0)
-            let d = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Bottom, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Top, multiplier: 1, constant: 0)
-            self.view.addConstraints([a, b, c, d])
-            
-            self.kludge = kludge
-        }
-    }
-    
+//    var kludge: UIView?
+//    func setupKludge() {
+//        if self.kludge == nil {
+//            var kludge = UIView()
+//            self.view.addSubview(kludge)
+//            kludge.setTranslatesAutoresizingMaskIntoConstraints(false)
+//            kludge.hidden = true
+//            
+//            let a = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Left, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Left, multiplier: 1, constant: 0)
+//            let b = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Right, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Left, multiplier: 1, constant: 0)
+//            let c = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Top, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Top, multiplier: 1, constant: 0)
+//            let d = NSLayoutConstraint(item: kludge, attribute: NSLayoutAttribute.Bottom, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Top, multiplier: 1, constant: 0)
+//            self.view.addConstraints([a, b, c, d])
+//            
+//            self.kludge = kludge
+//        }
+//    }
+
     /*
     BUG NOTE
 
@@ -176,8 +173,8 @@ class KeyboardViewController: UIInputViewController {
             self.layout?.initialize()
             self.setMode(0)
             
-            self.setupKludge()
-            
+//            self.setupKludge()
+
             self.updateKeyCaps(self.shiftState.uppercase())
             var capsWasSet = self.setCapsIfNeeded()
             
@@ -207,14 +204,14 @@ class KeyboardViewController: UIInputViewController {
     }
     
     var lastLayoutBounds: CGRect?
-    override func viewDidLayoutSubviews() {
-        if view.bounds == CGRectZero {
+    override func layoutSubviews() {
+        if self.bounds == CGRectZero {
             return
         }
         
         self.setupLayout()
         
-        let orientationSavvyBounds = CGRectMake(0, 0, self.view.bounds.width, self.heightForOrientation(self.interfaceOrientation, withTopBanner: false))
+        let orientationSavvyBounds = CGRectMake(0, 0, self.bounds.width, self.heightForOrientation(self.interfaceOrientation, withTopBanner: false))
         
         if (lastLayoutBounds != nil && lastLayoutBounds == orientationSavvyBounds) {
             // do nothing
@@ -229,28 +226,19 @@ class KeyboardViewController: UIInputViewController {
             self.setupKeys()
         }
         
-        self.bannerView?.frame = CGRectMake(0, 0, self.view.bounds.width, metric("topBanner"))
+        self.bannerView?.frame = CGRectMake(0, 0, self.bounds.width, metric("topBanner"))
         
-        let newOrigin = CGPointMake(0, self.view.bounds.height - self.forwardingView.bounds.height)
+        let newOrigin = CGPointMake(0, self.bounds.height - self.forwardingView.bounds.height)
         self.forwardingView.frame.origin = newOrigin
     }
     
-    override func loadView() {
-        super.loadView()
-        
-        if var aBanner = self.createBanner() {
-            aBanner.hidden = true
-            self.view.insertSubview(aBanner, belowSubview: self.forwardingView)
-            self.bannerView = aBanner
-        }
-    }
-    
-    override func viewWillAppear(animated: Bool) {
+    // TODO: call this from KeyboardViewController?
+    func viewWillAppear(animated: Bool) {
         self.bannerView?.hidden = false
-        self.keyboardHeight = self.heightForOrientation(self.interfaceOrientation, withTopBanner: true)
+        self.setHeight(self.heightForOrientation(self.interfaceOrientation, withTopBanner: true))
     }
-    
-    override func willRotateToInterfaceOrientation(toInterfaceOrientation: UIInterfaceOrientation, duration: NSTimeInterval) {
+
+    func willRotateToInterfaceOrientation(toInterfaceOrientation: UIInterfaceOrientation, duration: NSTimeInterval) {
         self.forwardingView.resetTrackedViews()
         self.shiftStartingState = nil
         self.shiftWasMultitapped = false
@@ -262,10 +250,10 @@ class KeyboardViewController: UIInputViewController {
             }
         }
         
-        self.keyboardHeight = self.heightForOrientation(toInterfaceOrientation, withTopBanner: true)
+        self.setHeight(self.heightForOrientation(toInterfaceOrientation, withTopBanner: true))
     }
     
-    override func didRotateFromInterfaceOrientation(fromInterfaceOrientation: UIInterfaceOrientation) {
+    func didRotateFromInterfaceOrientation(fromInterfaceOrientation: UIInterfaceOrientation) {
         // optimization: ensures quick mode and shift transitions
         if let keyPool = self.layout?.keyPool {
             for view in keyPool {
@@ -388,13 +376,8 @@ class KeyboardViewController: UIInputViewController {
     // POPUP DELAY END //
     /////////////////////
     
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
-        // Dispose of any resources that can be recreated
-    }
-
     // TODO: this is currently not working as intended; only called when selection changed -- iOS bug
-    override func textDidChange(textInput: UITextInput) {
+    func textDidChange(textInput: UITextInput) {
         self.contextChanged()
     }
     
@@ -404,22 +387,24 @@ class KeyboardViewController: UIInputViewController {
     }
     
     func setHeight(height: CGFloat) {
-        if self.heightConstraint == nil {
-            self.heightConstraint = NSLayoutConstraint(
-                item:self.view,
-                attribute:NSLayoutAttribute.Height,
-                relatedBy:NSLayoutRelation.Equal,
-                toItem:nil,
-                attribute:NSLayoutAttribute.NotAnAttribute,
-                multiplier:0,
-                constant:height)
-            self.heightConstraint!.priority = 1000
-            
-            self.view.addConstraint(self.heightConstraint!) // TODO: what if view already has constraint added?
-        }
-        else {
-            self.heightConstraint?.constant = height
-        }
+        self.viewController.setHeight(height)
+        // TODO: do this in KeyboardViewController
+//        if self.heightConstraint == nil {
+//            self.heightConstraint = NSLayoutConstraint(
+//                item:self.view,
+//                attribute:NSLayoutAttribute.Height,
+//                relatedBy:NSLayoutRelation.Equal,
+//                toItem:nil,
+//                attribute:NSLayoutAttribute.NotAnAttribute,
+//                multiplier:0,
+//                constant:height)
+//            self.heightConstraint!.priority = 1000
+//            
+//            self.view.addConstraint(self.heightConstraint!) // TODO: what if view already has constraint added?
+//        }
+//        else {
+//            self.heightConstraint?.constant = height
+//        }
     }
     
     func updateAppearances(appearanceIsDark: Bool) {
@@ -429,6 +414,7 @@ class KeyboardViewController: UIInputViewController {
         
         self.bannerView?.darkMode = appearanceIsDark
         self.settingsView?.darkMode = appearanceIsDark
+        self.backgroundColor = appearanceIsDark ? UIColor(white: 89 / 255, alpha: 1) : UIColor(red: 220 / 255, green: 224 / 255, blue: 227 / 255, alpha: 1)
     }
     
     func highlightKey(sender: KeyboardKey) {
@@ -651,40 +637,42 @@ class KeyboardViewController: UIInputViewController {
         self.shiftStartingState = nil
         self.shiftWasMultitapped = false
         
-        self.advanceToNextInputMode()
+        self.viewController.advanceToNextInputMode()
     }
     
     @IBAction func toggleSettings() {
+      // TODO: organize
+      self.hidden = true
         // lazy load settings
-        if self.settingsView == nil {
-            if var aSettings = self.createSettings() {
-                aSettings.darkMode = self.darkMode()
-                
-                aSettings.hidden = true
-                self.view.addSubview(aSettings)
-                self.settingsView = aSettings
-                
-                aSettings.setTranslatesAutoresizingMaskIntoConstraints(false)
-                
-                let widthConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.Width, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Width, multiplier: 1, constant: 0)
-                let heightConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.Height, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Height, multiplier: 1, constant: 0)
-                let centerXConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.CenterX, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.CenterX, multiplier: 1, constant: 0)
-                let centerYConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.CenterY, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.CenterY, multiplier: 1, constant: 0)
-                
-                self.view.addConstraint(widthConstraint)
-                self.view.addConstraint(heightConstraint)
-                self.view.addConstraint(centerXConstraint)
-                self.view.addConstraint(centerYConstraint)
-            }
-        }
-        
-        if let settings = self.settingsView {
-            let hidden = settings.hidden
-            settings.hidden = !hidden
-            self.forwardingView.hidden = hidden
-            self.forwardingView.userInteractionEnabled = !hidden
-            self.bannerView?.hidden = hidden
-        }
+//        if self.settingsView == nil {
+//            if var aSettings = self.createSettings() {
+//                aSettings.darkMode = self.darkMode()
+//                
+//                aSettings.hidden = true
+//                self.addSubview(aSettings)
+//                self.settingsView = aSettings
+//                
+//                aSettings.setTranslatesAutoresizingMaskIntoConstraints(false)
+
+//                let widthConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.Width, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Width, multiplier: 1, constant: 0)
+//                let heightConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.Height, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.Height, multiplier: 1, constant: 0)
+//                let centerXConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.CenterX, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.CenterX, multiplier: 1, constant: 0)
+//                let centerYConstraint = NSLayoutConstraint(item: aSettings, attribute: NSLayoutAttribute.CenterY, relatedBy: NSLayoutRelation.Equal, toItem: self.view, attribute: NSLayoutAttribute.CenterY, multiplier: 1, constant: 0)
+//                
+//                self.view.addConstraint(widthConstraint)
+//                self.view.addConstraint(heightConstraint)
+//                self.view.addConstraint(centerXConstraint)
+//                self.view.addConstraint(centerYConstraint)
+//            }
+//        }
+
+//        if let settings = self.settingsView {
+//            let hidden = settings.hidden
+//            settings.hidden = !hidden
+//            self.forwardingView.hidden = hidden
+//            self.forwardingView.userInteractionEnabled = !hidden
+//            self.bannerView?.hidden = hidden
+//        }
     }
     
     func setCapsIfNeeded() -> Bool {
@@ -838,10 +826,10 @@ class KeyboardViewController: UIInputViewController {
     }
     
     // a settings view that replaces the keyboard when the settings button is pressed
-    func createSettings() -> ExtraView? {
+//    func createSettings() -> ExtraView? {
         // note that dark mode is not yet valid here, so we just put false for clarity
-        var settingsView = DefaultSettings(globalColors: self.dynamicType.globalColors, darkMode: false, solidColorMode: self.solidColorMode())
-        settingsView.backButton?.addTarget(self, action: Selector("toggleSettings"), forControlEvents: UIControlEvents.TouchUpInside)
-        return settingsView
-    }
+//        var settingsView = DefaultSettings(globalColors: self.dynamicType.globalColors, darkMode: false, solidColorMode: self.solidColorMode())
+//        settingsView.backButton?.addTarget(self, action: Selector("toggleSettings"), forControlEvents: UIControlEvents.TouchUpInside)
+//        return nil
+//    }
 }

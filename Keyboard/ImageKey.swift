@@ -50,15 +50,22 @@ class ImageKey: KeyboardKey {
     
     func redrawImage() {
         if let image = self.image {
-            let imageSize = CGSizeMake(20, 20)
-            let imageOrigin = CGPointMake(
-                (self.bounds.width - imageSize.width) / CGFloat(2),
-                (self.bounds.height - imageSize.height) / CGFloat(2))
-            var imageFrame = CGRectZero
-            imageFrame.origin = imageOrigin
-            imageFrame.size = imageSize
-            
-            image.frame = imageFrame
+//            let imageSize = CGSizeMake(20, 20)
+//            let imageOrigin = CGPointMake(
+//                (self.bounds.width - imageSize.width) / CGFloat(2),
+//                (self.bounds.height - imageSize.height) / CGFloat(2))
+//            var imageFrame = CGRectZero
+//            imageFrame.origin = imageOrigin
+//            imageFrame.size = imageSize
+//            
+//            image.frame = imageFrame
+            let pointOffset: CGFloat = 4
+            let size = CGSizeMake(self.bounds.width - pointOffset - pointOffset, self.bounds.height - pointOffset - pointOffset)
+            image.frame = CGRectMake(
+                CGFloat((self.bounds.width - size.width) / 2.0),
+                CGFloat((self.bounds.height - size.height) / 2.0),
+                size.width,
+                size.height)
         }
     }
 }

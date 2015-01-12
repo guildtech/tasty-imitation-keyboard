@@ -63,7 +63,7 @@ class LayoutConstants: NSObject {
     class var lastRowLandscapeFirstTwoButtonAreaWidthToKeyboardAreaWidth: CGFloat { get { return 0.19 }}
     class var lastRowPortraitLastButtonAreaWidthToKeyboardAreaWidth: CGFloat { get { return 0.24 }}
     class var lastRowLandscapeLastButtonAreaWidthToKeyboardAreaWidth: CGFloat { get { return 0.19 }}
-    class var micButtonPortraitWidthRatioToOtherSpecialButtons: CGFloat { get { return 0.765 }}
+    class var micButtonPortraitWidthRatioToOtherSpecialButtons: CGFloat { get { return 1 }} // 0.765
     
     // TODO: not exactly precise
     class var popupGap: CGFloat { get { return 8 }}
@@ -466,7 +466,8 @@ class KeyboardLayout: NSObject, KeyboardKeyProtocol {
             if model.type == Key.KeyType.Settings {
                 if let imageKey = key as? ImageKey {
                     if imageKey.image == nil {
-                        var gearImage = UIImage(named: "gear")
+                      // TODO: need a smaller image
+                        var gearImage = UIImage(named: "moji")
                         var settingsImageView = UIImageView(image: gearImage)
                         imageKey.image = settingsImageView
                     }
